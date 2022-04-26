@@ -1,0 +1,366 @@
+---
+title: "Writing Functions"
+author: "Nils Indreiten"
+date: "02/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Main benefits of writing a function include:
+
+* Efficiency
+* Customized functionality
+* Reproducibility
+* Extend work thats already been done
+
+## A starting point
+
+Consider we want to calculate the mean, sd, and 
+number of missing values for a variable, called 
+myvar. We can do the following:
+
+```{r}
+mean(myvar)
+sd(myvar)
+sum(is.na(myvar))
+```
+
+However what if we have to repeat this multiple 
+times? A potential function to achieve just that 
+could look as follows: 
+
+```{r}
+my_summary <- function(x){
+  
+  data.frame(
+    mean = mean(x),
+    sd = sd(x),
+    N_missing = sum(is.na(x))
+  )
+}
+```
+
+In the above x is arbitrary, can be what ever you 
+want:
+
+```{r}
+my_summary(mtcars$mpg)
+```
+
+Works fine. However data isn't that pretty. It has 
+missing values.
+
+```{r}
+library(gapminder)
+my_summary(gapminder_unfiltered$lifeExp)
+```
+
+If our data contains missing values then we need
+to ensure that we set `na.rm = TRUE` at each function
+otherwise we will get NAs. The 2 options are to 
+hard bake it in, or add an arguement that lets us 
+control how to handle NAs with our custom function:
+
+```{r}
+# Option 1 
+my_summary <- function(x) {
+  data.frame(
+    mean = mean(x, na.rm = TRUE),
+    sd = sd(x, na.rm = TRUE),
+    N_missing = sum(is.na(x))
+  )
+}
+
+# Option 2
+
+my_summary_na <- function(x) {
+  data.frame(
+    mean = mean(x, na.rm = remove_na),
+    sd = sd(x, na.rm = remove_na),
+    N_missing = sum(is.na(x))
+  )
+}
+
+my_summary(gapminder$lifeExp)
+my_summary_na(gapminder$lifeExp, remov_na=FALSE)
+```
+
+Great, lets add a few elements:
+
+```{r}
+my_summary <- function(x){
+  
+  # create arbitrary object name
+  summary_data = 
+    data.frame(
+      mean = mean(x,na.rm = TRUE),
+      sd = sd(x,na.rm = TRUE),
+      N_total = length(x),
+      N_missing = sum(is.na(x))
+    )
+  
+summary_data
+}
+# Try it out:
+
+my_summary(gapminder$lifeExp)
+```
+
+We can now apply this function for every column:
+
+```{r}
+gapminder %>% 
+  select_if(is.numeric) %>% 
+  map_dfr(my_summary, .id = 'variable')
+```
+
+The map_dfr() function returns a data.frame() object. The first part
+of any function can be straight forward. Once in place you can add 
+functionality without too much hassle. Things to keep in mind:
+
+* What are the inputs (arguements) to the function?
+
+* What is the value to be returned? 
+
+When thinking about making a function, just write code that achieves 
+the desired result first. Then the aim is to generalise beyond that
+single use case. The cmd+Shft+X. 
+
+```{r}
+mean(myvar)
+sd(myvar)
+sum(is.na(myvar))
+```
+
+## DRY
+
+Don't Repeat Yourself, a rule of thumb. If you are writing the 
+same code more than twice then we should write a function to do
+it instead. Consider the following subsetting operations:
+
+```{r}
+good_mileage_displ_low_cyl_4  = if_else(cyl == 4 & displ < mean(displ) & hwy > 30, 'yes', 'no')
+good_mileage_displ_low_cyl_6  = if_else(cyl == 6 & displ < mean(displ) & hwy > 30, 'yes', 'no')
+good_mileage_displ_low_cyl_8  = if_else(cyl == 8 & displ < mean(displ) & hwy > 30, 'yes', 'no')
+good_mileage_displ_high_cyl_4 = if_else(cyl == 4 & displ > mean(displ) & hwy > 30, 'yes', 'no')
+good_mileage_displ_high_cyl_6 = if_else(cyl == 6 & displ > mean(displ) & hwy > 30, 'yes', 'no')
+good_mileage_displ_high_cyl_8 = if_else(cyl == 8 & displ > mean(displ) & hwy > 30, 'yes', 'no')
+```
+
+It technically wasn't to bad. but imagine we then wanted to change 
+some of the operations. Imagine if the mpg cutoff changes, or instead
+of mean, median. Lets create a function:
+What do we need?:
+
+* cyl: Which cylinder type we want. 
+* mpg_cutoff: The cutoff for 'good' mileage.
+* displ_fun: whether the displacement to be based on mean or something else.
+* displ_low: whether we are interested in low or high displacement vehicles.
+* cls: the class of the vehicle (compact/suv)
+
+```{r}
+good_mileage <- function(
+  cylinder = 4,
+  mpg_cutoff = 30,
+  displ_fun = mean,
+  displ_low = TRUE,
+  cls = 'compact'
+) {
+  if (displ_low == TRUE) {
+    result <- mpg %>% 
+      filter(
+        cyl == cylinder,
+        displ <= displ_fun(displ),
+        hwy >= mpg_cutoff,
+        class == cls
+        )
+  }
+  else {
+    result <- mpg %>% 
+      filter(
+        cyl == cylinder,
+        displ >= displ_fun(displ),
+        hwy >= mpg_cutoff,
+        class == cls
+      )
+  }
+  result
+}
+good_mileage()
+```
+
+So what the hell is happening. Basically the function will filter the 
+data to observations that align with the input criteria. Then returns
+the result at the end. The default values can be altered at our 
+discretion. 
+
+## Conditionals
+
+Core to the above function is a conditional statement, this uses
+standard if...else statements. The if part determines whether some
+condition holds. If it does then proceed to the next step in the 
+brackets. If not skip to the else part. Now that we have our function
+we can set off on doing the things we want as needed:
+
+```{r}
+good_mileage(mpg_cutoff = 40)
+```
+
+Say we want to change a few more params:
+
+```{r}
+good_mileage(
+    cylinder = 8,
+    mpg_cutoff = 15,
+    displ_low = FALSE,
+    cls = 'suv'
+)
+```
+
+Lets extend the functionality by adding a year argument:
+
+```{r}
+good_mileage <- function(
+  cylinder = 4,
+  mpg_cutoff = 30,
+  displ_fun = mean,
+  displ_low = TRUE,
+  cls = 'compact',
+  yr= 2008
+) {
+  if (displ_low == TRUE) {
+    result <- mpg %>% 
+      filter(
+        cyl == cylinder,
+        displ <= displ_fun(displ),
+        hwy >= mpg_cutoff,
+        class == cls,
+        yr == yr
+        )
+  }
+  else {
+    result <- mpg %>% 
+      filter(
+        cyl == cylinder,
+        displ >= displ_fun(displ),
+        hwy >= mpg_cutoff,
+        class == cls,
+        yr == yr
+      )
+  }
+  result
+}
+```
+
+Lets use our newly created function to filter on the following:
+```{r}
+good_mileage(
+  cylinder = 8,
+  mpg_cutoff = 19,
+  displ_low = FALSE,
+  cls = 'suv',
+  # yr = 2008
+)
+```
+
+The above is now more flexible and reusable. 
+
+## Anonymous Functions
+
+There will be times when quick and easy functions are necessary. 
+Especially when using map/apply Consider the following:
+
+```{r}
+apply(mtcars, 2, sd)
+apply(mtcars, 2, function(x) x/2)
+```
+
+The difference between these is that the latter did not have to be
+named. Rather it was created on the fly. All it does is divide by
+2. Lets create a standardisation function that uses the median and
+median absolute deviation rather than the mean and sd:
+
+```{r}
+mtcars %>% 
+  map_df(function(x) (x- median(x))/mad(x))
+```
+
+Important to understand these functions.
+
+# Exercises 
+## Exercise 1: 
+
+Write a function that takes the log of the sum of two values using 
+the log function. Just remember that within a function you can write
+R code as wou normally would:
+
+```{r}
+log_sum <- function(a,b){
+  
+  x <- log(a)+log(b)
+  x
+}
+log_sum(a = 22, b=11)
+```
+
+## Exercise 1b
+What happens if the sum of the two numbers is negative? You cant take
+a log of a negative value, so its an error. Hoe can we deal with this?
+Try using a conditional  to provide an error message using the stop function. The first part is basically identical to the function you just did. But given that result, you will need to check for whether it is negative or not. The message can be whatever you want. 
+
+```{r}
+log_sum <- function(a, b) {
+  
+   x <- log(a)+log(b)
+  
+  if (x < 0) {
+    stop('Cant log neggative values')
+  } else {
+    x > 0
+    return(x)    # this is an arbitrary name, change accordingly
+  }
+}
+
+log_sum(a = -2,b = 3)
+```
+
+## Exercise 2 
+Let’s write a function that will take a numeric variable and convert it to a character string of ‘positive’ vs. ‘negative’. We can use if {}... else {} structure, ifelse, or dplyr::if_else- they all would accomplish this. In this case, the input is a single vector of numbers, and the output will recode any negative value to ‘negative’ and positive values to ‘positive’ (or whatever you want). Here is an example of how we would just do it as a one-off.
+
+```{r}
+set.seed(123)
+x <- rnorm(10)
+if_else(x<0, "negative","positive")
+```
+
+Attempt to functionalise this:
+
+```{r}
+pos_neg <- function(x){
+
+      if_else(x<0, "negative","positive")
+}
+pos_neg(x = rnorm(20))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

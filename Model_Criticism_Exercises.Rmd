@@ -1,0 +1,106 @@
+---
+title: "Model Criticism"
+author: "Nils Indreiten"
+date: "4/16/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+```
+
+## Model Criticism Exercises:
+
+# Exercise 0
+
+Recall the google app exercises, we use a standard linear model (i.e. lm) to predict one of three target variables:
+
+rating: the user ratings of the app
+avg_sentiment_polarity: the average sentiment score (positive vs. negative) for the app
+avg_sentiment_subjectivity: the average subjectivity score (subjective vs. objective) for the app
+
+Either using those models, or running new ones with a different target variable, conduct the following exercises.
+
+```{r}
+google_apps |> 
+  mutate(reviews = replace(google_apps$reviews,google_apps$reviews == 0,1)) -> google_apps
+
+google_apps |> 
+  mutate(reviews = log(reviews)) -> google_apps
+```
+
+
+Create the simple models:
+
+# Exercise 1 
+assess the model fit and performance,
+perform additional diagnostics to assess
+how the model is doing:
+```{r}
+lm_mod <- linear_reg() |> 
+  set_engine('lm') |> 
+  set_mode('regression')
+
+goog_fit1 <- lm_mod |> 
+  fit(rating~reviews+type+size_in_MB,data=google_apps)
+
+
+goog_fit1 |> performance::check_model()
+
+goog_fit2 <- lm_mod |> 
+  fit(rating~reviews+type+size_in_MB+type:size_in_MB,data=google_apps)
+
+goog_fit2 |> performance::check_model()
+```
+
+# Exercise 2:
+
+Compare the model with the interaction
+model. Based on AIC or some other 
+metric, which one would you choose?
+Visualise interaction if it is better:
+
+```{r}
+anova(lmmod,lmmod2)
+AIC(lmmod,lmmod2)
+```
+
+No statistically significant 
+difference. However interaction 
+mod is marginally better.
+
+```{r}
+plot(
+  ggeffects::ggpredict(
+    lmmod2,
+    terms = c('type','size_in_MB')
+  )
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

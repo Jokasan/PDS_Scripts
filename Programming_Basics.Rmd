@@ -1,0 +1,93 @@
+---
+title: "Programming Basics"
+author: "Nils Indreiten"
+date: "29/03/2022"
+output: html_document
+---
+
+# Object Inspection and exploration:
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+Consider the following object, diamonds. We
+can inspect it using str():
+
+```{r}
+str(diamonds)
+```
+
+A more readable way to achieve the same is using
+glimpse():
+
+```{r}
+diamonds %>% 
+  glimpse()
+```
+
+We can use str() even with models, consider the 
+following:
+
+```{r}
+lm_mod <- lm(mpg~., data=mtcars)
+str(lm_mod) # Increase the level of depth by assigning a number after lm_mod for example: str(lm_mod,1)
+```
+
+We can look more into the model object by doing the following:
+
+```{r}
+lm_mod$coefficients
+```
+
+We can even summarize it:
+
+```{r}
+summary(lm_mod)
+```
+We can even assign the summary object into an 
+object and inspect that:
+
+```{r}
+lm_mod_summary <- summary(lm_mod)
+str(lm_mod_summary)
+```
+
+If we pull the coefficients from this object, we 
+dont only get the values but the table
+thats printed in the summary. We can easily
+get it ready for publishing:
+
+```{r}
+lm_mod_summary$coefficients %>% 
+  kableExtra::kable(digits = 2)
+```
+
+# Methods:
+
+The methods() function will allow us to see how
+the function will behave on different objects:
+
+```{r}
+methods('summary')
+```
+
+# S4 Classes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

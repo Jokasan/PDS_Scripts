@@ -1,0 +1,63 @@
+---
+title: "Model Exploration"
+format:
+  html:
+    theme: default
+---
+
+# Exercises:
+
+## Exercise 1
+
+With the Google App data, use a lm to predict on of three target variables
+of your choosing:
+
+
+```{r}
+load("~/Documents/R/Data_Wrangling_and_Tidbits/PDS/google_apps.RData")
+# define the recipe:
+google_recipe <- recipes::recipe(rating~reviews+type+size_in_MB, data=google_apps) |> 
+  recipes::step_log(reviews)
+
+linear_reg_lm_spec_google <-
+  linear_reg() %>%
+  set_engine('lm')
+
+googl_wf <- workflow() |> 
+  add_model(linear_reg_lm_spec_google) |> 
+  add_recipe(google_recipe)
+
+googl_wf |> 
+  fit(data=google_apps) |> 
+  tidy()
+```
+
+
+Visualise the outputs:
+```{r}
+prep(google_recipe) |> bake(new_data=NULL)->google2
+google_mod <- lm(rating~reviews + type + size_in_MB, data = google2)
+plot(emmeans::emmeans(google_mod,~type))
+```
+
+# Exercise 2:
+
+rerun the above but this time with an interaction term.
+```{r}
+model = lm(rating ~ reviews + type*size_in_MB, data = google2)
+plot(ggeffects::ggpredict(model, terms = c('size_in_MB', 'type')))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

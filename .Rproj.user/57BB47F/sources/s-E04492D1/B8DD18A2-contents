@@ -1,0 +1,187 @@
+## Some Tidyverse Practice, PDSR:
+
+## Load in data for examples:
+
+pacman::p_load(rvest,tidyverse)
+
+current_year = lubridate::year(Sys.Date())
+
+# url = glue::glue("http://www.basketball-reference.com/leagues/NBA_{current_year-1}_totals.html")
+# 
+# bball = read_html(url) %>% 
+#   html_nodes("#totals_stats") %>% 
+#   html_table() %>% 
+#   data.frame() 
+# 
+# save(bball, file='bball.RData')
+
+### Selecting Columns:
+bball |> colnames()
+
+bball |> select(Player,Pos,Age) |> head()
+# Do the inverse for not selecting specific columns:
+bball |> select(-Player,-Pos,-Age) |> head()
+
+## Helper Functions:
+bball |> select(Player, contains("3P"), ends_with("RB"), starts_with("X")) |> head()
+
+## Filtering Rows + Slice:
+
+bball |> 
+  filter(Age < 32, Pos == "PF" | Pos == "C") |> 
+  distinct(Player, Pos,Age) |> 
+  slice(1:10)
+
+# Filtering even works for newly created variables:
+
+bball |> 
+  unite("PosTeam", Pos,Tm) |> 
+  filter(PosTeam == "C_TOT") |> 
+  select(Player,PosTeam,Age) |> 
+  arrange(desc(Age))
+  
+# Generating new data:
+
+# The following example selects every variable minus the specified ones
+# and converts them to numeric:
+
+bball2 <- bball |> 
+  mutate(across(c(-Player,-Pos,-Tm), as.numeric))
+
+# Now that the variables are the correct format we can summarise it as follows:
+bball2 = bball %>% 
+  mutate(
+    trueShooting = PTS / (2 * (FGA + (.44 * FTA))),
+    effectiveFG  = (FG + (.5 * X3P)) / FGA,
+    shootingDif  = trueShooting - FG.
+  )
+
+summary(select(bball2, shootingDif)) 
+
+## Grouping and summarizing data:
+
+# Another common task is to look at group based statistics. Conceptually
+# the task involves three main steps: split, apply, combine, to get figures for 
+# each position:
+
+bball |> 
+  mutate(across(c(-Player,-Pos,-Tm), as.numeric)) |> 
+  select(Pos, FG, FGA, FG., FTA, X3P, PTS) %>% 
+  mutate(
+    trueShooting = PTS / (2 * (FGA + (.44 * FTA))),
+    effectiveFG = (FG + (.5 * X3P)) / FGA,
+    shootingDif = trueShooting - FG.
+  ) %>%  
+  group_by(Pos) %>%                                                 
+  summarize(
+    `Mean FG%` = mean(FG., na.rm = TRUE),
+    `Mean True Shooting` = mean(trueShooting, na.rm = TRUE)) |> 
+  na.omit()
+
+# A lot can be done with grouped data. The following example groups data by 
+# position, the calculates the correlation between field-goal percentage and
+# free-throw shooting percentage. some players have multiple positions, so we
+# will reduce those to whatever their first position is, using case_when(). 
+
+bball %>% 
+  mutate(
+    Pos = case_when(
+      Pos == 'PG-SG' ~ 'PG',
+      Pos == 'C-PF'  ~ 'C',
+      Pos == 'SF-SG' ~ 'SF',
+      Pos == 'PF-C'  | Pos == 'PF-SF' ~ 'PF',
+      Pos == 'SG-PF' | Pos == 'SG-SF' ~ 'SG',
+      TRUE ~ Pos
+    )) %>% 
+  nest_by(Pos) %>%     
+  mutate(FgFt_Corr = list(cor(data$FG., data$FT.))) %>% 
+  unnest(c(Pos, FgFt_Corr))
+
+# Since data frames are lists, anything can be done to the columns, we can
+# even run regression models:
+
+library(nycflights13)
+
+flights |> 
+  group_by(carrier) -> carriers
+
+group_size(carriers)
+
+flights |> 
+  nest_by(carrier) |> 
+  mutate(model= list(lm(arr_delay~dep_time, data = data))) -> mods
+mods
+
+mods |> 
+  summarise(
+    carrier = carrier,
+    AdjRsquar = summary(model)$adj.r.squared,
+    coef_dep_time = coef(model)[2]) 
+
+## Renaming Columns:
+# Easy way to clean column names:
+janitor::clean_names(bball)
+
+# The column names in a data frame may often be more complex than simply changing
+# The follwoing example uses regular expressions to clean up the names of the 
+# variables:
+
+bball = bball %>%
+  rename_with(
+    str_replace,      # function
+    contains('.'),    # columns
+    pattern = '\\.',  # function arguments
+    replacement = '%'
+  ) %>% 
+  rename_with(str_remove, starts_with('X'), pattern = 'X')
+
+colnames(bball)
+
+## Merging Data:
+# A left_join()
+
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,413 @@
+---
+title: "Machine Learning"
+format:
+  html:
+    theme: default
+---
+
+```{r}
+pacman::p_load(tidymodels,tidyverse)
+load("~/Documents/R/Data_Wrangling_and_Tidbits/PDS/world_happiness.RData")
+```
+
+# Cross Validation:
+
+cross-validation, is widely used for validation and/or testing. Consider
+the following workflow:
+
+```{r}
+set.seed(123)
+
+# Step 1: Specify the model:
+happy_base_spec <- linear_reg() |> 
+  set_engine(engine = 'lm')
+
+# Step 2: Set up folds(default=10)
+happy_folds <-  vfold_cv(happy)
+
+happy_base_results <-  fit_resamples(
+  happy_base_spec,
+  happiness_score ~ democratic_quality + generosity + log_gdp_per_capita,
+  happy_folds,
+  control = control_resamples(save_pred = TRUE)
+)
+
+cv_res <-  happy_base_results %>%
+  collect_metrics()
+# Results are average across the iterations
+```
+
+# Tuning Parameters
+## Regularised Regression
+
+Consider the following example for regularised regression:
+
+```{r}
+happy_prepped <- happy |> 
+  select(-country, -gini_index_world_bank_estimate, -dystopia_residual) |> 
+  recipe(happiness_score~.) |> 
+  step_scale(everything()) |> 
+  step_naomit(happiness_score) |> 
+  prep() |>
+  bake(happy)
+
+happy_folds <- happy_prepped |> 
+  drop_na() |> 
+  vfold_cv()
+
+happy_regLM_Speci <- linear_reg(penalty = 0.001, mixture = .5) |> 
+  set_engine(engine = "glmnet")
+
+
+happy_regLM_results <- fit_resamples(
+  happy_regLM_Speci,
+  happiness_score~.,
+  happy_folds,
+  control = control_resamples(save_pred = TRUE)
+  )
+
+cv_regLM_res <- happy_regLM_results |> 
+  collect_metrics()
+cv_regLM_res
+```
+
+## Tuning parameters for regularised regression
+
+In the above example we didnt know those parameters would be the best.
+However we can use cross validation to reach an optimal parameter 
+specifications:
+
+```{r}
+# Create splits:
+happy_splits <- happy |> 
+  select(-country,-gini_index_world_bank_estimate,-dystopia_residual) |> 
+  initial_split(prop = 0.75)
+
+happy_train <- training(happy_splits)
+happy_test <- testing(happy_splits)
+```
+
+Next process the data:
+
+```{r}
+
+happy_recipe <- recipe(happiness_score~., data =happy_train) |> 
+  step_impute_knn(everything()) |> 
+  step_center(everything())
+  
+  
+happy_prepped <- happy_train |> 
+  recipe(happiness_score ~. ) |> 
+  step_impute_knn(everything()) |> 
+  step_center(everything()) |> 
+  prep()
+
+happy_test_normalised <- bake(happy_prepped, new_data = happy_test, everything())
+
+happy_fold <- happy_prepped |> 
+  bake(happy) |> 
+  vfold_cv()
+
+# Specify which parameters to tune:
+happy_regLm_spec <- linear_reg(penalty = tune(),mixture = tune()) |> 
+  set_engine(engine = "glmnet")
+
+# Create tuning grid:
+
+grid_search <- expand_grid(
+  penalty=exp(seq(-4,-.25,length.out=10)),
+  mixture = seq(0,1,length.out=10)
+)
+
+reg_reg_wf <- workflow(preprocessor = happy_recipe, spec = happy_regLm_spec) 
+
+# Tune the model on the grid:
+
+regLM_tune <- tune_grid(
+  reg_reg_wf,
+  resamples = happy_folds,
+  grid = grid_search
+)
+
+autoplot(regLM_tune, metric = "rmse")+geom_smooth(se=FALSE)
+
+regLM_tune |> select_best(metric ='rmse') ->best
+```
+Now that we have the best model selected we can refit to the training 
+data with the parameters in hand:
+
+```{r}
+last_reg_mod <- 
+  linear_reg(penalty = best$penalty, mixture = best$mixture) |> 
+  set_engine(engine = "glmnet")
+
+last_re_mod <- 
+  reg_reg_wf |> 
+  update_model(last_reg_mod) |> 
+  last_fit(happy_splits)
+
+last_re_mod |> collect_metrics()
+
+last_re_mod |> 
+  extract_fit_parsnip() |> 
+  vip::vip(geom='point') + 
+  theme_minimal()
+```
+
+## Random Forests
+
+Fitting a random forest to the cross validation samples:
+
+```{r}
+# Specify random forest spec:
+happy_rf_spec <- rand_forest(mtry=6) |> 
+  set_engine("ranger") |> 
+  set_mode("regression")
+
+
+happy_rf_rs <- fit_resamples(
+  happy_rf_spec,
+  happiness_score~.,
+  happy_folds,
+  control = control_resamples()
+)
+
+cv_rf_res <- happy_rf_rs |> 
+  collect_metrics()
+
+```
+
+It seems the results have increased compared to the regression model. 
+
+## Tuning parameters for random forests
+
+The grid and tuning operations for the random forest model:
+
+```{r}
+grid_search <- expand_grid(
+  mtry= c(3,5,ncol(happy_train)-1),
+  min_n= c(1,5,10)
+)
+
+happy_rf_spec <- rand_forest(mtry = tune(), min_n=tune()) |> 
+  set_mode("regression") |> 
+  set_engine("ranger") 
+  
+rf_res <- tune_grid(
+  happy_rf_spec,
+  happiness_score~.,
+  resamples = happy_folds,
+  grid=grid_search
+)  
+  
+autoplot(rf_res, metric= "rmse")boost_tree_xgboost_spec <-
+  boost_tree(tree_depth = tune(), trees = tune(), learn_rate = tune(), min_n = tune(), loss_reduction = tune(), sample_size = tune(), stop_iter = tune()) %>%
+  set_engine('xgboost') %>%
+  set_mode('regression')
+
+
+```
+
+select the best model:
+
+```{r}
+best <- show_best(rf_res, metric = "rmse", maximise =FALSE,n=1)
+best
+```
+
+
+Update model and fit one last time:
+
+```{r}
+
+rf_wf <- workflow(preprocessor = happy_recipe, spec = happy_rf_spec) 
+
+last_rf_mod <- 
+  rand_forest(mtry=5,min_n=1) |> 
+  set_engine("ranger", importance="impurity") |> 
+  set_mode("regression")
+
+last_rf_workflow <- 
+  rf_wf |> 
+  update_model(last_rf_mod)
+
+last_rf_fit <- 
+  last_rf_workflow |> 
+  last_fit(happy_splits)
+
+last_rf_fit |> 
+  collect_metrics()
+
+last_rf_fit |> 
+  pluck(".workflow",1) |> 
+  extract_fit_parsnip() |> 
+  vip::vip(geom="col")
+
+```
+
+
+## Neural Net:
+
+Example Set up of neural net:
+
+```{r}
+# happy_nn_spec <-  mlp(
+#   mode = 'regression',
+#   hidden_units = 1000,
+#   epochs = 500,
+#   activation = 'linear'
+# ) %>%
+#   set_engine(engine = "keras")
+# 
+# happy_nn_results <-  fit_resamples(
+#   happy_nn_spec,
+#   happiness_score ~ .,
+#   happy_folds,
+#   control = control_resamples(save_pred = TRUE,
+#                               verbose   = FALSE,
+#                               allow_par = TRUE)
+# )
+```
+
+## Exercises
+
+Use the ranger package to predict the Google rating by several covariates:
+Tidy approach:
+
+```{r}
+load("~/Documents/R/Data_Wrangling_and_Tidbits/PDS/google_apps.RData")
+
+# Step 1, create splits:
+google_modelling <- google_apps |> 
+  select(avg_sentiment_polarity,rating, type,installs,reviews,size_in_MB,category) |> 
+  drop_na()
+
+google_splits <-  google_modelling |> 
+  initial_split(prop = 0.75,
+                strata = rating)
+  
+google_train <- training(google_splits)
+google_test <- testing(google_splits)
+
+# Step 2 specify recipe:
+rf_recipe <- recipe(rating~.,data=google_train) 
+
+# Step 3 specify model specifications:
+rf_mod <- rand_forest(trees=500) |> 
+  set_engine("ranger") |> 
+  set_mode("regression")
+
+# Step 4 Put workflow together:
+rf_wf <- 
+  workflow() |> 
+  add_model(rf_mod) |> 
+  add_recipe(rf_recipe)
+
+rf_wf |> 
+ last_fit(google_splits) |> collect_metrics()->rf_res
+
+##  CV:
+
+google_folds <- google_train |> 
+  vfold_cv(strata=rating)
+
+control <- control_resamples(save_pred = TRUE)
+
+# Fit Random forest to folds:
+
+google_rf_rs <- fit_resamples(
+  rf_wf,
+  google_folds,
+  control = control
+)
+
+google_rf_rs |> 
+  collect_predictions() |> 
+  ggplot(aes(rating, .pred,color=id)) +
+    geom_jitter(width = 0.5, alpha=0.5)
+```
+
+Tune the model:
+
+```{r}
+# Specify model
+rf_mod <- 
+  rand_forest(mtry=tune(), 
+              min_n = tune(),
+            trees= 1000) |> 
+  set_engine("ranger") |> 
+  set_mode("regression")
+# validation split:
+val_set <- 
+  validation_split(google_train,
+                   strata= rating,
+                   prop=0.8)
+
+# check tunable params:
+rf_mod |> 
+  parameters()
+
+# create workflow:
+rf_wf <- workflow() |> 
+  add_model(rf_mod) |> 
+  add_recipe(rf_recipe)
+
+# Results:
+set.seed(1234)
+rf_res <- rf_wf |> 
+  tune_grid(val_set,
+            grid=25,
+            control= control_grid(save_pred = TRUE))
+rf_res
+
+rf_res |> 
+  show_best(n=1)
+
+rf_res |> 
+  autoplot(metric="rsq")
+
+
+# update workflow with best results:
+last_rf_mod <- rand_forest(mtry=2, 
+              min_n = 16,
+            trees= 1000) |> 
+  set_engine("ranger") |> 
+  set_mode("regression")
+
+last_rf_workflow <- 
+  rf_wf |> 
+  update_model(last_rf_mod)
+
+# final fit and prediction:
+last_rf_fit <- 
+  last_rf_workflow |> 
+  last_fit(google_splits)
+
+last_rf_fit |> 
+  collect_metrics()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
